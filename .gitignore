@@ -1,0 +1,31 @@
+# 기본적으로 전부 제외
+/*
+
+# Git 설정
+!/.gitignore
+!/.gitattributes
+
+# Visual Studio 로컬 캐시
+/.vs/
+
+# Assets - Scripts만 포함
+!/Assets/
+/Assets/*
+
+!/Assets/Scripts/
+!/Assets/Scripts/**
+!/Assets/Scripts.meta
+
+# Packages - 필요한 파일만
+!/Packages/
+/Packages/*
+
+!/Packages/manifest.json
+!/Packages/packages-lock.json
+
+# ProjectSettings - 필요한 파일만
+!/ProjectSettings/
+/ProjectSettings/*
+
+!/ProjectSettings/ProjectVersion.txt
+!/ProjectSettings/TagManager.asset
