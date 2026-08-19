@@ -10,7 +10,8 @@ public enum TextChatChannel : byte
 {
     MorningPublic,
     MafiaNight,
-    MediumNight
+    MediumNight,
+    Dead
 }
 
 [RequireComponent(typeof(NetworkObject))]
@@ -246,6 +247,9 @@ public class MatchManager : NetworkBehaviour
 
     public event Action
         LocalMafiaDisguiseOptionsChanged;
+
+    public event Action
+        LocalMafiaKillerVotesChanged;
 
     [Header("Village")]
     [SerializeField] private VillageGenerator villageGenerator;
@@ -493,6 +497,14 @@ public class MatchManager : NetworkBehaviour
     public bool LastNightDeathWasPoisoned => lastNightDeathWasPoisoned.Value;
 
     private readonly List<MafiaMemberData> localMafiaMembers = new List<MafiaMemberData>();
+
+    /*
+     * 밤 준비의 살해 담당 투표 상세는 마녀 진영 클라이언트에게만
+     * 개별 RPC로 전달한다. 일반 공개 NetworkList에는 올리지 않는다.
+     */
+    private readonly Dictionary<ulong, ulong>
+        localMafiaKillerVotes =
+            new Dictionary<ulong, ulong>();
     private readonly Dictionary<ulong, PlayerMatchState>
         localSpectatorPlayerStates =
             new Dictionary<ulong, PlayerMatchState>();
@@ -1001,6 +1013,7 @@ public class MatchManager : NetworkBehaviour
         activeMediumTargetByMedium.Clear();
         activeMediumsByDeadTarget.Clear();
         lastTextChatServerTimeByClient.Clear();
+        localMafiaKillerVotes.Clear();
         hasLocalMediumCommunication = false;
 
         localDrunkardSleepTargetClientId = NoClientId;
@@ -1151,6 +1164,7 @@ public class MatchManager : NetworkBehaviour
         }
 
         mafiaKillerVotes.Clear();
+        localMafiaKillerVotes.Clear();
         mafiaDisguiseWeaponByClient.Clear();
         ownedMafiaDisguiseWeaponsByClient.Clear();
         doctorProtectTargets.Clear();
@@ -3615,6 +3629,7 @@ public class MatchManager : NetworkBehaviour
     private void PrepareNightState()
     {
         mafiaKillerVotes.Clear();
+        SendMafiaKillerVoteSnapshotToMafia();
         doctorProtectTargets.Clear();
         drunkardSleepTargets.Clear();
         completedNightRoleActions.Clear();
@@ -4922,6 +4937,23 @@ public class MatchManager : NetworkBehaviour
     private void ApplyFinalDuelGameplayState()
     {
         SetAllSpiritPhaseControl(false);
+
+        foreach (KeyValuePair<ulong, NetworkObject> pair in spawnedSpirits)
+        {
+            NetworkObject spiritObject = pair.Value;
+
+            if (spiritObject == null || !spiritObject.IsSpawned)
+            {
+                continue;
+            }
+
+            PlayerSpirit playerSpirit = spiritObject.GetComponent<PlayerSpirit>();
+
+            if (playerSpirit != null && playerSpirit.IsDeadSpectator)
+            {
+                playerSpirit.SetPhaseControlEnabled(true);
+            }
+        }
 
         PrepareFinalDuelParticipant(
             finalDuelSerialKillerClientId
@@ -7308,7 +7340,11 @@ public class MatchManager : NetworkBehaviour
         if (!IsAliveMafia(voterClientId))
             return;
 
-        mafiaKillerVotes.Remove(voterClientId);
+        bool removed =
+            mafiaKillerVotes.Remove(voterClientId);
+
+        if (removed)
+            SendMafiaKillerVoteSnapshotToMafia();
 
         if (showNightActionLogs)
         {
@@ -7331,6 +7367,7 @@ public class MatchManager : NetworkBehaviour
             return;
 
         mafiaKillerVotes[voterClientId] = candidateClientId;
+        SendMafiaKillerVoteSnapshotToMafia();
 
         if (showNightActionLogs)
             Debug.Log($"Mafia Killer Vote - Voter: {voterClientId}, Candidate: {candidateClientId}");
@@ -7474,6 +7511,135 @@ public class MatchManager : NetworkBehaviour
         );
     }
 
+
+    public int GetLocalMafiaKillerVoteCount(
+        ulong candidateClientId)
+    {
+        int voteCount = 0;
+
+        foreach (KeyValuePair<ulong, ulong> vote in
+                 localMafiaKillerVotes)
+        {
+            if (vote.Value == candidateClientId)
+                voteCount++;
+        }
+
+        return voteCount;
+    }
+
+    public string GetLocalMafiaKillerVoterNames(
+        ulong candidateClientId)
+    {
+        StringBuilder names = new StringBuilder();
+
+        foreach (KeyValuePair<ulong, ulong> vote in
+                 localMafiaKillerVotes)
+        {
+            if (vote.Value != candidateClientId)
+                continue;
+
+            if (!TryGetPublicPlayerName(
+                    vote.Key,
+                    out string voterName) ||
+                string.IsNullOrWhiteSpace(voterName))
+            {
+                voterName = $"Player {vote.Key}";
+            }
+
+            if (names.Length > 0)
+                names.Append(", ");
+
+            names.Append(voterName);
+        }
+
+        return names.ToString();
+    }
+
+    private void SendMafiaKillerVoteSnapshotToMafia()
+    {
+        if (!IsServer || NetworkManager == null)
+            return;
+
+        StringBuilder snapshotBuilder =
+            new StringBuilder();
+
+        foreach (KeyValuePair<ulong, ulong> vote in
+                 mafiaKillerVotes)
+        {
+            if (snapshotBuilder.Length > 0)
+                snapshotBuilder.Append(';');
+
+            snapshotBuilder
+                .Append(vote.Key)
+                .Append(',')
+                .Append(vote.Value);
+        }
+
+        FixedString512Bytes snapshot =
+            new FixedString512Bytes(
+                snapshotBuilder.ToString()
+            );
+
+        foreach (PlayerMatchState state in
+                 playerMatchStates.Values)
+        {
+            if (!state.isAlive ||
+                state.team != RoleTeam.Mafia ||
+                !NetworkManager.ConnectedClients
+                    .ContainsKey(state.clientId))
+            {
+                continue;
+            }
+
+            ReceiveMafiaKillerVoteSnapshotRpc(
+                snapshot,
+                RpcTarget.Single(
+                    state.clientId,
+                    RpcTargetUse.Temp
+                )
+            );
+        }
+    }
+
+    [Rpc(
+        SendTo.SpecifiedInParams,
+        InvokePermission = RpcInvokePermission.Server
+    )]
+    private void ReceiveMafiaKillerVoteSnapshotRpc(
+        FixedString512Bytes snapshot,
+        RpcParams rpcParams = default)
+    {
+        localMafiaKillerVotes.Clear();
+
+        string value = snapshot.ToString();
+
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            string[] votes = value.Split(';');
+
+            for (int i = 0; i < votes.Length; i++)
+            {
+                string[] pair = votes[i].Split(',');
+
+                if (pair.Length != 2 ||
+                    !ulong.TryParse(
+                        pair[0],
+                        out ulong voterClientId) ||
+                    !ulong.TryParse(
+                        pair[1],
+                        out ulong candidateClientId))
+                {
+                    continue;
+                }
+
+                localMafiaKillerVotes[
+                    voterClientId
+                ] = candidateClientId;
+            }
+        }
+
+        LocalMafiaKillerVotesChanged?.Invoke();
+    }
 
     private void ResolveMafiaKillerVote()
     {
@@ -8294,6 +8460,52 @@ public class MatchManager : NetworkBehaviour
                 }
 
                 return recipients.Count > 1;
+
+            case TextChatChannel.Dead:
+                if (senderState.isAlive ||
+                    currentPhase.Value == MatchPhase.None ||
+                    currentPhase.Value == MatchPhase.GameResult)
+                {
+                    return false;
+                }
+
+                /*
+                 * 영매사가 아직 교신 대상으로 선택할 수 있는
+                 * RestrictedDeadSpectator는 사망자 채팅에서
+                 * 완전히 분리한다. 실제 교신 중일 때뿐 아니라
+                 * 교신 가능 기간 전체에 적용해, 다른 사망자에게
+                 * 얻은 정보를 영매사에게 전달하는 우회를 막는다.
+                 */
+                if (TryGetPlayerSpirit(
+                        senderClientId,
+                        out PlayerSpirit senderDeadSpirit) &&
+                    senderDeadSpirit.IsRestrictedDeadSpectator)
+                {
+                    return false;
+                }
+
+                foreach (PlayerMatchState state in
+                         playerMatchStates.Values)
+                {
+                    if (state.isAlive ||
+                        !NetworkManager.ConnectedClients
+                            .ContainsKey(state.clientId))
+                    {
+                        continue;
+                    }
+
+                    if (TryGetPlayerSpirit(
+                            state.clientId,
+                            out PlayerSpirit recipientDeadSpirit) &&
+                        recipientDeadSpirit.IsRestrictedDeadSpectator)
+                    {
+                        continue;
+                    }
+
+                    recipients.Add(state.clientId);
+                }
+
+                return recipients.Count > 0;
 
             default:
                 return false;
@@ -11335,6 +11547,13 @@ public class MatchManager : NetworkBehaviour
 
     private void OnCurrentPhaseChanged(MatchPhase previous, MatchPhase current)
     {
+        if (current != MatchPhase.NightPreparation &&
+            localMafiaKillerVotes.Count > 0)
+        {
+            localMafiaKillerVotes.Clear();
+            LocalMafiaKillerVotesChanged?.Invoke();
+        }
+
         RefreshAllHouseOwnerPresentationsLocal();
         PhaseChanged?.Invoke(previous, current);
         Debug.Log($"Phase Changed - {previous} -> {current}");
@@ -11874,6 +12093,9 @@ public class MatchManager : NetworkBehaviour
 
         for (int i = 0; i < mafiaVotersToRemove.Count; i++)
             mafiaKillerVotes.Remove(mafiaVotersToRemove[i]);
+
+        if (mafiaVotersToRemove.Count > 0)
+            SendMafiaKillerVoteSnapshotToMafia();
 
         for (int i = 0; i < doctorsToRemove.Count; i++)
             doctorProtectTargets.Remove(doctorsToRemove[i]);

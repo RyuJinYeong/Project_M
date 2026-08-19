@@ -10,6 +10,14 @@ public class LobbyUI : MonoBehaviour
 {
     private const int MaximumPlayerNameLength = 8;
 
+    private enum HelpPage
+    {
+        Controls,
+        Rules,
+        Audio,
+        Graphics
+    }
+
     [System.Serializable]
     private sealed class RequiredRoleToggleBinding
     {
@@ -87,11 +95,54 @@ public class LobbyUI : MonoBehaviour
     [SerializeField] private GameObject helpPanel;
     [SerializeField] private Button helpControlsTabButton;
     [SerializeField] private Button helpRulesTabButton;
+    [SerializeField] private Button helpAudioTabButton;
+    [SerializeField] private Button helpGraphicsTabButton;
     [SerializeField] private Button closeHelpButton;
     [SerializeField] private GameObject helpControlsPage;
     [SerializeField] private GameObject helpRulesPage;
+    [SerializeField] private GameObject helpAudioPage;
+    [SerializeField] private GameObject helpGraphicsPage;
+
+    [Header("개인 환경 설정")]
+    [Tooltip("게임 플레이 UI와 같은 순서: 마우스 감도, 게임 음량, 음성 채팅 음량, 마이크, 음성 수신, 화면 모드, 해상도, 그래픽 품질, FPS 제한, 화면 효과")]
+    [SerializeField] private Button[] personalSettingButtons;
+    [SerializeField] private TextMeshProUGUI[] personalSettingValueTexts;
 
     public Button closeSettingsButton;
+
+    private const string MasterVolumePreferenceKey =
+        "Personal.MasterVolume";
+    private const string FullScreenModePreferenceKey =
+        "Personal.FullScreenMode";
+    private const string ResolutionWidthPreferenceKey =
+        "Personal.ResolutionWidth";
+    private const string ResolutionHeightPreferenceKey =
+        "Personal.ResolutionHeight";
+    private const string QualityLevelPreferenceKey =
+        "Personal.QualityLevel";
+
+    private static readonly int[] FrameRateChoices =
+    {
+        30,
+        60,
+        120,
+        240,
+        -1
+    };
+
+    private static readonly string[] PersonalSettingButtonNames =
+    {
+        "MouseSensitivityButton",
+        "MasterVolumeButton",
+        "VoiceVolumeButton",
+        "MicrophoneButton",
+        "VoiceOutputButton",
+        "FullScreenModeButton",
+        "ResolutionButton",
+        "QualityButton",
+        "FrameRateButton",
+        "ScreenEffectButton"
+    };
 
     private LobbyRoomManager
         boundLobbyRoomManager;
@@ -139,6 +190,9 @@ public class LobbyUI : MonoBehaviour
         RestoreNeutralRoleToggleBindings();
 
         PrepareHelpPanelOverlay();
+        CachePersonalSettingsUIReferences();
+        ApplySavedPersonalSettings();
+        RefreshPersonalSettingsUI();
         RegisterButtonEvents();
         SetHelpPanelVisible(false);
 
@@ -298,8 +352,16 @@ public class LobbyUI : MonoBehaviour
         if (helpRulesTabButton != null)
             helpRulesTabButton.onClick.AddListener(OnHelpRulesTabClicked);
 
+        if (helpAudioTabButton != null)
+            helpAudioTabButton.onClick.AddListener(OnHelpAudioTabClicked);
+
+        if (helpGraphicsTabButton != null)
+            helpGraphicsTabButton.onClick.AddListener(OnHelpGraphicsTabClicked);
+
         if (closeHelpButton != null)
             closeHelpButton.onClick.AddListener(OnCloseHelpClicked);
+
+        RegisterPersonalSettingEvents();
 
         mafiaSlider.onValueChanged.AddListener(
             OnMafiaSliderChanged
@@ -360,8 +422,16 @@ public class LobbyUI : MonoBehaviour
         if (helpRulesTabButton != null)
             helpRulesTabButton.onClick.RemoveListener(OnHelpRulesTabClicked);
 
+        if (helpAudioTabButton != null)
+            helpAudioTabButton.onClick.RemoveListener(OnHelpAudioTabClicked);
+
+        if (helpGraphicsTabButton != null)
+            helpGraphicsTabButton.onClick.RemoveListener(OnHelpGraphicsTabClicked);
+
         if (closeHelpButton != null)
             closeHelpButton.onClick.RemoveListener(OnCloseHelpClicked);
+
+        UnregisterPersonalSettingEvents();
 
         mafiaSlider.onValueChanged.RemoveListener(
             OnMafiaSliderChanged
@@ -1038,12 +1108,22 @@ public class LobbyUI : MonoBehaviour
 
     private void OnHelpControlsTabClicked()
     {
-        ShowHelpPage(true);
+        ShowHelpPage(HelpPage.Controls);
     }
 
     private void OnHelpRulesTabClicked()
     {
-        ShowHelpPage(false);
+        ShowHelpPage(HelpPage.Rules);
+    }
+
+    private void OnHelpAudioTabClicked()
+    {
+        ShowHelpPage(HelpPage.Audio);
+    }
+
+    private void OnHelpGraphicsTabClicked()
+    {
+        ShowHelpPage(HelpPage.Graphics);
     }
 
     private void SetHelpPanelVisible(bool visible)
@@ -1062,7 +1142,7 @@ public class LobbyUI : MonoBehaviour
             EventSystem.current.SetSelectedGameObject(null);
 
         helpPanel.transform.SetAsLastSibling();
-        ShowHelpPage(true);
+        ShowHelpPage(HelpPage.Controls);
     }
 
     private void PrepareHelpPanelOverlay()
@@ -1083,24 +1163,621 @@ public class LobbyUI : MonoBehaviour
             helpPanel.AddComponent<GraphicRaycaster>();
     }
 
-    private void ShowHelpPage(bool showControls)
+    private void ShowHelpPage(HelpPage page)
     {
+        bool showControls = page == HelpPage.Controls;
+        bool showRules = page == HelpPage.Rules;
+        bool showAudio = page == HelpPage.Audio;
+        bool showGraphics = page == HelpPage.Graphics;
+
         if (helpControlsPage != null)
             helpControlsPage.SetActive(showControls);
 
         if (helpRulesPage != null)
         {
-            helpRulesPage.SetActive(!showControls);
+            helpRulesPage.SetActive(showRules);
 
-            if (!showControls && helpRulesPage.TryGetComponent(out ScrollRect rulesScrollRect))
+            if (showRules &&
+                helpRulesPage.TryGetComponent(
+                    out ScrollRect rulesScrollRect))
+            {
                 rulesScrollRect.verticalNormalizedPosition = 1f;
+            }
         }
+
+        if (helpAudioPage != null)
+            helpAudioPage.SetActive(showAudio);
+
+        if (helpGraphicsPage != null)
+            helpGraphicsPage.SetActive(showGraphics);
 
         if (helpControlsTabButton != null)
             helpControlsTabButton.interactable = !showControls;
 
         if (helpRulesTabButton != null)
-            helpRulesTabButton.interactable = showControls;
+            helpRulesTabButton.interactable = !showRules;
+
+        if (helpAudioTabButton != null)
+            helpAudioTabButton.interactable = !showAudio;
+
+        if (helpGraphicsTabButton != null)
+            helpGraphicsTabButton.interactable = !showGraphics;
+
+        if (showAudio || showGraphics)
+            RefreshPersonalSettingsUI();
+    }
+
+    private void CachePersonalSettingsUIReferences()
+    {
+        if (helpPanel == null)
+            return;
+
+        if (helpAudioTabButton == null)
+        {
+            Transform target = FindDescendantByName(
+                helpPanel.transform,
+                "HelpAudioTabButton"
+            );
+            if (target != null)
+                helpAudioTabButton = target.GetComponent<Button>();
+        }
+
+        if (helpGraphicsTabButton == null)
+        {
+            Transform target = FindDescendantByName(
+                helpPanel.transform,
+                "HelpGraphicsTabButton"
+            );
+            if (target != null)
+                helpGraphicsTabButton = target.GetComponent<Button>();
+        }
+
+        if (helpAudioPage == null)
+        {
+            Transform target = FindDescendantByName(
+                helpPanel.transform,
+                "HelpAudioPage"
+            );
+            if (target != null)
+                helpAudioPage = target.gameObject;
+        }
+
+        if (helpGraphicsPage == null)
+        {
+            Transform target = FindDescendantByName(
+                helpPanel.transform,
+                "HelpGraphicsPage"
+            );
+            if (target != null)
+                helpGraphicsPage = target.gameObject;
+        }
+
+        bool needsButtonCache =
+            personalSettingButtons == null ||
+            personalSettingButtons.Length <
+                PersonalSettingButtonNames.Length;
+
+        if (needsButtonCache)
+        {
+            personalSettingButtons = new Button[
+                PersonalSettingButtonNames.Length
+            ];
+        }
+
+        if (personalSettingValueTexts == null ||
+            personalSettingValueTexts.Length <
+                PersonalSettingButtonNames.Length)
+        {
+            personalSettingValueTexts =
+                new TextMeshProUGUI[
+                    PersonalSettingButtonNames.Length
+                ];
+        }
+
+        for (int i = 0;
+             i < PersonalSettingButtonNames.Length;
+             i++)
+        {
+            if (personalSettingButtons[i] == null)
+            {
+                Transform target = FindDescendantByName(
+                    helpPanel.transform,
+                    PersonalSettingButtonNames[i]
+                );
+
+                if (target != null)
+                {
+                    personalSettingButtons[i] =
+                        target.GetComponent<Button>();
+                }
+            }
+
+            if (personalSettingValueTexts[i] == null &&
+                personalSettingButtons[i] != null)
+            {
+                personalSettingValueTexts[i] =
+                    personalSettingButtons[i]
+                        .GetComponentInChildren
+                            <TextMeshProUGUI>(true);
+            }
+        }
+    }
+
+    private static Transform FindDescendantByName(
+        Transform root,
+        string objectName)
+    {
+        if (root == null)
+            return null;
+
+        if (root.name == objectName)
+            return root;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform result = FindDescendantByName(
+                root.GetChild(i),
+                objectName
+            );
+
+            if (result != null)
+                return result;
+        }
+
+        return null;
+    }
+
+    private void RegisterPersonalSettingEvents()
+    {
+        if (personalSettingButtons == null ||
+            personalSettingButtons.Length < 10)
+        {
+            return;
+        }
+
+        if (personalSettingButtons[0] != null)
+            personalSettingButtons[0].onClick.AddListener(CycleMouseSensitivity);
+        if (personalSettingButtons[1] != null)
+            personalSettingButtons[1].onClick.AddListener(CycleMasterVolume);
+        if (personalSettingButtons[2] != null)
+            personalSettingButtons[2].onClick.AddListener(CycleVoiceVolume);
+        if (personalSettingButtons[3] != null)
+            personalSettingButtons[3].onClick.AddListener(TogglePersonalMicrophone);
+        if (personalSettingButtons[4] != null)
+            personalSettingButtons[4].onClick.AddListener(TogglePersonalVoiceOutput);
+        if (personalSettingButtons[5] != null)
+            personalSettingButtons[5].onClick.AddListener(CycleFullScreenMode);
+        if (personalSettingButtons[6] != null)
+            personalSettingButtons[6].onClick.AddListener(CycleResolution);
+        if (personalSettingButtons[7] != null)
+            personalSettingButtons[7].onClick.AddListener(CycleQualityLevel);
+        if (personalSettingButtons[8] != null)
+            personalSettingButtons[8].onClick.AddListener(CycleTargetFrameRate);
+        if (personalSettingButtons[9] != null)
+            personalSettingButtons[9].onClick.AddListener(CycleScreenEffectIntensity);
+    }
+
+    private void UnregisterPersonalSettingEvents()
+    {
+        if (personalSettingButtons == null ||
+            personalSettingButtons.Length < 10)
+        {
+            return;
+        }
+
+        if (personalSettingButtons[0] != null)
+            personalSettingButtons[0].onClick.RemoveListener(CycleMouseSensitivity);
+        if (personalSettingButtons[1] != null)
+            personalSettingButtons[1].onClick.RemoveListener(CycleMasterVolume);
+        if (personalSettingButtons[2] != null)
+            personalSettingButtons[2].onClick.RemoveListener(CycleVoiceVolume);
+        if (personalSettingButtons[3] != null)
+            personalSettingButtons[3].onClick.RemoveListener(TogglePersonalMicrophone);
+        if (personalSettingButtons[4] != null)
+            personalSettingButtons[4].onClick.RemoveListener(TogglePersonalVoiceOutput);
+        if (personalSettingButtons[5] != null)
+            personalSettingButtons[5].onClick.RemoveListener(CycleFullScreenMode);
+        if (personalSettingButtons[6] != null)
+            personalSettingButtons[6].onClick.RemoveListener(CycleResolution);
+        if (personalSettingButtons[7] != null)
+            personalSettingButtons[7].onClick.RemoveListener(CycleQualityLevel);
+        if (personalSettingButtons[8] != null)
+            personalSettingButtons[8].onClick.RemoveListener(CycleTargetFrameRate);
+        if (personalSettingButtons[9] != null)
+            personalSettingButtons[9].onClick.RemoveListener(CycleScreenEffectIntensity);
+    }
+
+    private void ApplySavedPersonalSettings()
+    {
+        AudioListener.volume = Mathf.Clamp01(
+            PlayerPrefs.GetFloat(
+                MasterVolumePreferenceKey,
+                AudioListener.volume
+            )
+        );
+
+        int qualityLevel = Mathf.Clamp(
+            PlayerPrefs.GetInt(
+                QualityLevelPreferenceKey,
+                QualitySettings.GetQualityLevel()
+            ),
+            0,
+            Mathf.Max(0, QualitySettings.names.Length - 1)
+        );
+
+        if (QualitySettings.names.Length > 0)
+            QualitySettings.SetQualityLevel(qualityLevel, true);
+
+        int width = PlayerPrefs.GetInt(
+            ResolutionWidthPreferenceKey,
+            Screen.width
+        );
+        int height = PlayerPrefs.GetInt(
+            ResolutionHeightPreferenceKey,
+            Screen.height
+        );
+        FullScreenMode mode = (FullScreenMode)Mathf.Clamp(
+            PlayerPrefs.GetInt(
+                FullScreenModePreferenceKey,
+                (int)Screen.fullScreenMode
+            ),
+            (int)FullScreenMode.ExclusiveFullScreen,
+            (int)FullScreenMode.Windowed
+        );
+
+        Screen.SetResolution(width, height, mode);
+    }
+
+    private void CycleMouseSensitivity()
+    {
+        float sensitivity = PlayerPrefs.GetFloat(
+            SpiritFirstPersonCamera.MouseSensitivityPreferenceKey,
+            0.12f
+        );
+        sensitivity += 0.02f;
+
+        if (sensitivity > 0.401f)
+            sensitivity = 0.04f;
+
+        PlayerPrefs.SetFloat(
+            SpiritFirstPersonCamera.MouseSensitivityPreferenceKey,
+            sensitivity
+        );
+        PlayerPrefs.Save();
+        RefreshPersonalSettingsUI();
+    }
+
+    private void CycleMasterVolume()
+    {
+        float volume = AudioListener.volume + 0.1f;
+
+        if (volume > 1.001f)
+            volume = 0f;
+
+        AudioListener.volume = Mathf.Clamp01(volume);
+        PlayerPrefs.SetFloat(
+            MasterVolumePreferenceKey,
+            AudioListener.volume
+        );
+        PlayerPrefs.Save();
+        RefreshPersonalSettingsUI();
+    }
+
+    private void CycleVoiceVolume()
+    {
+        VivoxVoiceManager voiceManager =
+            VivoxVoiceManager.Instance;
+        int volume = voiceManager != null
+            ? voiceManager.OutputVolume
+            : PlayerPrefs.GetInt(
+                VivoxVoiceManager.VoiceVolumePreferenceKey,
+                0
+            );
+        volume += 10;
+
+        if (volume > 50)
+            volume = -50;
+
+        if (voiceManager != null)
+        {
+            voiceManager.SetOutputVolume(volume);
+        }
+        else
+        {
+            PlayerPrefs.SetInt(
+                VivoxVoiceManager.VoiceVolumePreferenceKey,
+                volume
+            );
+            PlayerPrefs.Save();
+        }
+
+        RefreshPersonalSettingsUI();
+    }
+
+    private void TogglePersonalMicrophone()
+    {
+        VivoxVoiceManager voiceManager =
+            VivoxVoiceManager.Instance;
+        bool enabled = !(voiceManager != null
+            ? voiceManager.MicrophoneEnabled
+            : PlayerPrefs.GetInt(
+                VivoxVoiceManager.MicrophonePreferenceKey,
+                1
+            ) != 0);
+
+        if (voiceManager != null)
+            voiceManager.SetMicrophoneEnabled(enabled);
+        else
+            PlayerPrefs.SetInt(
+                VivoxVoiceManager.MicrophonePreferenceKey,
+                enabled ? 1 : 0
+            );
+
+        PlayerPrefs.Save();
+        RefreshPersonalSettingsUI();
+    }
+
+    private void TogglePersonalVoiceOutput()
+    {
+        VivoxVoiceManager voiceManager =
+            VivoxVoiceManager.Instance;
+        bool enabled = !(voiceManager != null
+            ? voiceManager.VoiceOutputEnabled
+            : PlayerPrefs.GetInt(
+                VivoxVoiceManager.VoiceOutputPreferenceKey,
+                1
+            ) != 0);
+
+        if (voiceManager != null)
+            voiceManager.SetVoiceOutputEnabled(enabled);
+        else
+            PlayerPrefs.SetInt(
+                VivoxVoiceManager.VoiceOutputPreferenceKey,
+                enabled ? 1 : 0
+            );
+
+        PlayerPrefs.Save();
+        RefreshPersonalSettingsUI();
+    }
+
+    private void CycleFullScreenMode()
+    {
+        FullScreenMode mode;
+
+        switch (Screen.fullScreenMode)
+        {
+            case FullScreenMode.FullScreenWindow:
+                mode = FullScreenMode.Windowed;
+                break;
+            case FullScreenMode.Windowed:
+                mode = FullScreenMode.ExclusiveFullScreen;
+                break;
+            default:
+                mode = FullScreenMode.FullScreenWindow;
+                break;
+        }
+
+        Screen.SetResolution(
+            Screen.width,
+            Screen.height,
+            mode
+        );
+        PlayerPrefs.SetInt(
+            FullScreenModePreferenceKey,
+            (int)mode
+        );
+        PlayerPrefs.Save();
+        RefreshPersonalSettingsUI();
+    }
+
+    private void CycleResolution()
+    {
+        Resolution[] resolutions = Screen.resolutions;
+
+        if (resolutions == null || resolutions.Length == 0)
+            return;
+
+        int currentIndex = 0;
+
+        for (int i = 0; i < resolutions.Length; i++)
+        {
+            if (resolutions[i].width == Screen.width &&
+                resolutions[i].height == Screen.height)
+            {
+                currentIndex = i;
+            }
+        }
+
+        Resolution next = resolutions[
+            (currentIndex + 1) % resolutions.Length
+        ];
+
+        Screen.SetResolution(
+            next.width,
+            next.height,
+            Screen.fullScreenMode
+        );
+        PlayerPrefs.SetInt(
+            ResolutionWidthPreferenceKey,
+            next.width
+        );
+        PlayerPrefs.SetInt(
+            ResolutionHeightPreferenceKey,
+            next.height
+        );
+        PlayerPrefs.Save();
+        RefreshPersonalSettingsUI();
+    }
+
+    private void CycleQualityLevel()
+    {
+        int qualityCount = QualitySettings.names.Length;
+
+        if (qualityCount == 0)
+            return;
+
+        int nextLevel =
+            (QualitySettings.GetQualityLevel() + 1) %
+            qualityCount;
+        QualitySettings.SetQualityLevel(nextLevel, true);
+        PlayerPrefs.SetInt(
+            QualityLevelPreferenceKey,
+            nextLevel
+        );
+        PlayerPrefs.Save();
+        RefreshPersonalSettingsUI();
+    }
+
+    private void CycleTargetFrameRate()
+    {
+        RelayConnectionManager relayManager =
+            RelayConnectionManager.Instance;
+        int current = relayManager != null
+            ? relayManager.TargetFrameRate
+            : PlayerPrefs.GetInt(
+                RelayConnectionManager.TargetFrameRatePreferenceKey,
+                60
+            );
+        int index = System.Array.IndexOf(
+            FrameRateChoices,
+            current
+        );
+        int next = FrameRateChoices[
+            (Mathf.Max(-1, index) + 1) %
+            FrameRateChoices.Length
+        ];
+
+        if (relayManager != null)
+        {
+            relayManager.SetTargetFrameRate(next);
+        }
+        else
+        {
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = next;
+            PlayerPrefs.SetInt(
+                RelayConnectionManager.TargetFrameRatePreferenceKey,
+                next
+            );
+            PlayerPrefs.Save();
+        }
+
+        RefreshPersonalSettingsUI();
+    }
+
+    private void CycleScreenEffectIntensity()
+    {
+        SpiritHitReceiver.SetReducedScreenEffects(
+            !SpiritHitReceiver.UseReducedScreenEffects
+        );
+        RefreshPersonalSettingsUI();
+    }
+
+    private void RefreshPersonalSettingsUI()
+    {
+        if (personalSettingValueTexts == null ||
+            personalSettingValueTexts.Length < 10)
+        {
+            return;
+        }
+
+        VivoxVoiceManager voiceManager =
+            VivoxVoiceManager.Instance;
+        float sensitivity = PlayerPrefs.GetFloat(
+            SpiritFirstPersonCamera.MouseSensitivityPreferenceKey,
+            0.12f
+        );
+        int voiceVolume = voiceManager != null
+            ? voiceManager.OutputVolume
+            : PlayerPrefs.GetInt(
+                VivoxVoiceManager.VoiceVolumePreferenceKey,
+                0
+            );
+        bool microphoneEnabled = voiceManager != null
+            ? voiceManager.MicrophoneEnabled
+            : PlayerPrefs.GetInt(
+                VivoxVoiceManager.MicrophonePreferenceKey,
+                1
+            ) != 0;
+        bool voiceOutputEnabled = voiceManager != null
+            ? voiceManager.VoiceOutputEnabled
+            : PlayerPrefs.GetInt(
+                VivoxVoiceManager.VoiceOutputPreferenceKey,
+                1
+            ) != 0;
+        string qualityName = QualitySettings.names.Length > 0
+            ? QualitySettings.names[
+                Mathf.Clamp(
+                    QualitySettings.GetQualityLevel(),
+                    0,
+                    QualitySettings.names.Length - 1
+                )
+            ]
+            : "기본";
+        int frameRate = RelayConnectionManager.Instance != null
+            ? RelayConnectionManager.Instance.TargetFrameRate
+            : PlayerPrefs.GetInt(
+                RelayConnectionManager.TargetFrameRatePreferenceKey,
+                Application.targetFrameRate
+            );
+
+        SetPersonalSettingText(0,
+            $"마우스 감도  |  {sensitivity:0.00}");
+        SetPersonalSettingText(1,
+            "게임 음량  |  " +
+            $"{Mathf.RoundToInt(AudioListener.volume * 100f)}%");
+        SetPersonalSettingText(2,
+            $"음성 채팅 음량  |  {voiceVolume + 50}%");
+        SetPersonalSettingText(3,
+            "마이크  |  " +
+            (microphoneEnabled ? "켜짐" : "꺼짐"));
+        SetPersonalSettingText(4,
+            "음성 수신  |  " +
+            (voiceOutputEnabled ? "켜짐" : "꺼짐"));
+        SetPersonalSettingText(5,
+            "화면 모드  |  " +
+            GetFullScreenModeLabel(Screen.fullScreenMode));
+        SetPersonalSettingText(6,
+            $"해상도  |  {Screen.width} x {Screen.height}");
+        SetPersonalSettingText(7,
+            $"그래픽 품질  |  {qualityName}");
+        SetPersonalSettingText(8,
+            "FPS 제한  |  " +
+            (frameRate < 0
+                ? "제한 없음"
+                : $"{frameRate} FPS"));
+        SetPersonalSettingText(9,
+            "화면 효과  |  " +
+            (SpiritHitReceiver.UseReducedScreenEffects
+                ? "낮음"
+                : "보통"));
+    }
+
+    private void SetPersonalSettingText(int index, string value)
+    {
+        if (personalSettingValueTexts == null ||
+            index < 0 ||
+            index >= personalSettingValueTexts.Length ||
+            personalSettingValueTexts[index] == null)
+        {
+            return;
+        }
+
+        personalSettingValueTexts[index].SetText(value);
+    }
+
+    private static string GetFullScreenModeLabel(
+        FullScreenMode mode)
+    {
+        switch (mode)
+        {
+            case FullScreenMode.ExclusiveFullScreen:
+                return "전체 화면";
+            case FullScreenMode.Windowed:
+                return "창 모드";
+            default:
+                return "테두리 없는 창";
+        }
     }
 
     private void SetSettingsInteractable(

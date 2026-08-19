@@ -643,7 +643,7 @@ public class SpiritRoleActionInteractor : NetworkBehaviour
         }
 
         BeginInteractionAudio(
-            SpiritInteractionSoundType.Door,
+            SpiritInteractionSoundType.Body,
             ulong.MaxValue
         );
 

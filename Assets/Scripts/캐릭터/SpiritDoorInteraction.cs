@@ -61,7 +61,7 @@ public class SpiritDoorInteraction : NetworkBehaviour
 
             return System.Math.Max(
                 0d,
-                nextLocalHitDoorLockTime -
+                nextLocalUseTime -
                 NetworkManager.ServerTime.Time
             );
         }
@@ -72,8 +72,6 @@ public class SpiritDoorInteraction : NetworkBehaviour
 
     private double nextLocalUseTime;
     private double nextServerUseTime;
-    private double nextLocalHitDoorLockTime;
-    private double nextServerHitDoorLockTime;
 
     private void Awake()
     {
@@ -114,9 +112,9 @@ public class SpiritDoorInteraction : NetworkBehaviour
             NetworkManager.ServerTime.Time +
             EffectiveUseCooldown;
 
-        nextServerHitDoorLockTime =
+        nextServerUseTime =
             System.Math.Max(
-                nextServerHitDoorLockTime,
+                nextServerUseTime,
                 lockUntil
             );
 
@@ -146,9 +144,9 @@ public class SpiritDoorInteraction : NetworkBehaviour
         if (!IsOwner)
             return;
 
-        nextLocalHitDoorLockTime =
+        nextLocalUseTime =
             System.Math.Max(
-                nextLocalHitDoorLockTime,
+                nextLocalUseTime,
                 lockUntil
             );
     }
@@ -241,19 +239,6 @@ public class SpiritDoorInteraction : NetworkBehaviour
             return false;
         }
 
-        double currentTime =
-            NetworkManager.LocalTime.Time;
-
-        if (currentTime <
-            nextLocalUseTime)
-        {
-            return false;
-        }
-
-        nextLocalUseTime =
-            currentTime +
-            EffectiveUseCooldown;
-
         SetDroppedToolAimIndicatorVisible(
             false
         );
@@ -284,7 +269,12 @@ public class SpiritDoorInteraction : NetworkBehaviour
             playerCamera.transform.forward
         );
 
-        if (!Physics.Raycast(ray, out RaycastHit hit, interactionDistance, interactionRaycastMask, QueryTriggerInteraction.Collide))
+        if (!Physics.Raycast(
+                ray,
+                out RaycastHit hit,
+                interactionDistance,
+                interactionRaycastMask,
+                QueryTriggerInteraction.Collide))
         {
             return false;
         }
@@ -306,10 +296,13 @@ public class SpiritDoorInteraction : NetworkBehaviour
         }
 
         DroppedRoleTool droppedRoleTool =
-            hit.collider.GetComponentInParent<DroppedRoleTool>();
+            hit.collider.GetComponentInParent
+                <DroppedRoleTool>();
 
         if (droppedRoleTool == null ||
-            !MatchManager.Instance.CanLocalPickupDroppedRoleTool(droppedRoleTool))
+            !MatchManager.Instance
+                .CanLocalPickupDroppedRoleTool(
+                    droppedRoleTool))
         {
             return false;
         }
@@ -328,17 +321,9 @@ public class SpiritDoorInteraction : NetworkBehaviour
             return false;
         }
 
-        double currentTime =
-            NetworkManager.LocalTime.Time;
-
-        if (currentTime < nextLocalUseTime)
-            return false;
-
-        nextLocalUseTime =
-            currentTime +
-            EffectiveUseCooldown;
-
-        SetDroppedToolAimIndicatorVisible(false);
+        SetDroppedToolAimIndicatorVisible(
+            false
+        );
 
         RequestCurseDollInteractionRpc(
             targetPoint.HouseId,
@@ -383,33 +368,16 @@ public class SpiritDoorInteraction : NetworkBehaviour
             return;
         }
 
-        double currentTime =
-            NetworkManager.ServerTime.Time;
-
-        if (currentTime <
-            nextServerUseTime)
-        {
-            return;
-        }
-
         float maximumDistance =
             interactionDistance +
             serverDistanceTolerance;
 
-        bool pickedUp =
-            MatchManager.Instance
-                .TryPickupDroppedRoleToolServer(
-                    playerSpirit.LinkedClientId,
-                    droppedToolNetworkObjectId,
-                    maximumDistance
-                );
-
-        if (!pickedUp)
-            return;
-
-        nextServerUseTime =
-            currentTime +
-            EffectiveUseCooldown;
+        MatchManager.Instance
+            .TryPickupDroppedRoleToolServer(
+                playerSpirit.LinkedClientId,
+                droppedToolNetworkObjectId,
+                maximumDistance
+            );
     }
 
     [Rpc(
@@ -429,39 +397,22 @@ public class SpiritDoorInteraction : NetworkBehaviour
             return;
         }
 
-        double currentTime =
-            NetworkManager.ServerTime.Time;
-
-        if (currentTime < nextServerUseTime)
-            return;
-
         float maximumDistance =
             interactionDistance +
             serverDistanceTolerance;
 
-        bool interacted =
-            MatchManager.Instance
-                .TryInteractCurseDollServer(
-                    playerSpirit.LinkedClientId,
-                    houseId,
-                    pointType,
-                    maximumDistance
-                );
-
-        if (!interacted)
-            return;
-
-        nextServerUseTime =
-            currentTime +
-            EffectiveUseCooldown;
+        MatchManager.Instance
+            .TryInteractCurseDollServer(
+                playerSpirit.LinkedClientId,
+                houseId,
+                pointType,
+                maximumDistance
+            );
     }
 
     private void TryUseDoor()
     {
-        double currentLocalTime =
-            NetworkManager.LocalTime.Time;
-
-        double currentServerTime =
+        double currentTime =
             NetworkManager.ServerTime.Time;
 
         if (!TryFindUsableDoor(
@@ -471,34 +422,31 @@ public class SpiritDoorInteraction : NetworkBehaviour
             return;
         }
 
-        bool isHitDoorLocked =
-            currentServerTime <
-            nextLocalHitDoorLockTime;
-
-        if (currentLocalTime <
-                nextLocalUseTime ||
-            isHitDoorLocked)
+        if (currentTime <
+            nextLocalUseTime)
         {
             return;
         }
 
         if (doorType == DoorType.Front &&
-            MatchManager.Instance.IsFrontDoorSealed(
-                targetHouse.Id))
+            MatchManager.Instance
+                .IsFrontDoorSealed(
+                    targetHouse.Id))
         {
             nextLocalUseTime =
-                currentLocalTime +
+                currentTime +
                 EffectiveUseCooldown;
 
-            MatchManager.Instance.ShowLocalNotification(
-                "문이 잠겨있습니다."
-            );
+            MatchManager.Instance
+                .ShowLocalNotification(
+                    "문이 잠겨있습니다."
+                );
 
             return;
         }
 
         nextLocalUseTime =
-            currentLocalTime +
+            currentTime +
             EffectiveUseCooldown;
 
         RequestUseDoorRpc(
@@ -649,7 +597,8 @@ public class SpiritDoorInteraction : NetworkBehaviour
 
     [Rpc(
         SendTo.Server,
-        InvokePermission = RpcInvokePermission.Owner
+        InvokePermission =
+            RpcInvokePermission.Owner
     )]
     private void RequestUseDoorRpc(
         int houseId,
@@ -665,12 +614,6 @@ public class SpiritDoorInteraction : NetworkBehaviour
 
         double currentTime =
             NetworkManager.ServerTime.Time;
-
-        if (currentTime <
-            nextServerHitDoorLockTime)
-        {
-            return;
-        }
 
         if (currentTime <
             nextServerUseTime)
@@ -693,17 +636,19 @@ public class SpiritDoorInteraction : NetworkBehaviour
         }
 
         if (doorType == DoorType.Front &&
-            MatchManager.Instance.IsFrontDoorSealed(
-                house.Id))
+            MatchManager.Instance
+                .IsFrontDoorSealed(
+                    house.Id))
         {
             nextServerUseTime =
                 currentTime +
                 EffectiveUseCooldown;
 
-            MatchManager.Instance.SendPrivateNotification(
-                playerSpirit.LinkedClientId,
-                "문이 잠겨있습니다."
-            );
+            MatchManager.Instance
+                .SendPrivateNotification(
+                    playerSpirit.LinkedClientId,
+                    "문이 잠겨있습니다."
+                );
 
             return;
         }
@@ -761,10 +706,11 @@ public class SpiritDoorInteraction : NetworkBehaviour
 
         if (interactionAudio != null)
         {
-            interactionAudio.PlayServerSpatialSound(
-                SpiritInteractionSoundType.Door,
-                sourcePoint.position
-            );
+            interactionAudio
+                .PlayServerSpatialSound(
+                    SpiritInteractionSoundType.Door,
+                    sourcePoint.position
+                );
         }
     }
 

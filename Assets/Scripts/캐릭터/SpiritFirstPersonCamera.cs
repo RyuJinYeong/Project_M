@@ -325,6 +325,15 @@ public class SpiritFirstPersonCamera : NetworkBehaviour
         Mouse mouse =
             Mouse.current;
 
+        if (MafiaGame.UI.MafiaUIController
+            .IsMatchStatusBoardOpen)
+        {
+            if (cursorLocked)
+                UnlockCursor();
+
+            return;
+        }
+
         bool altPressed =
             keyboard != null &&
             (

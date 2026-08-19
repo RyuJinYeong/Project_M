@@ -21,6 +21,10 @@ namespace MafiaGame.UI
             Instance != null &&
             Instance.helpPanel != null &&
             Instance.helpPanel.activeInHierarchy;
+        public static bool IsMatchStatusBoardOpen =>
+            Instance != null &&
+            Instance.matchStatusBoardRoot != null &&
+            Instance.matchStatusBoardRoot.activeInHierarchy;
 
         private sealed class ChatPanelReferences
         {
@@ -187,7 +191,6 @@ namespace MafiaGame.UI
 
         private const float SlowRoleAssignmentNoticeDelay = 8f;
         private const float LobbyReturnTimeout = 20f;
-        private const float MatchStatusScrollStep = 0.12f;
 
         private static readonly int[] FrameRateChoices =
         {
@@ -216,6 +219,8 @@ namespace MafiaGame.UI
         private TextMeshProUGUI matchStatusPersonalLogText;
         private ScrollRect matchStatusPublicScrollRect;
         private ScrollRect matchStatusPersonalScrollRect;
+        private bool matchStatusBoardRestoreCursorLock;
+
         private readonly Dictionary<ulong, StatusPlayerRecord>
             matchStatusPlayerRecords =
                 new Dictionary<ulong, StatusPlayerRecord>();
@@ -934,6 +939,8 @@ namespace MafiaGame.UI
             matchManager.MorningVoteResultChanged += OnMorningVoteResultChanged;
             matchManager.MorningVoteTalliesChanged +=
                 OnMorningVoteTalliesChanged;
+            matchManager.LocalMafiaKillerVotesChanged +=
+                OnLocalMafiaKillerVotesChanged;
             matchManager.NightResultChanged += OnNightResultChanged;
             matchManager.LocalDetectiveResultReceived += OnLocalDetectiveResultReceived;
             matchManager.LocalForensicsResultReceived += OnLocalForensicsResultReceived;
@@ -995,6 +1002,8 @@ namespace MafiaGame.UI
             matchManager.MorningVoteResultChanged -= OnMorningVoteResultChanged;
             matchManager.MorningVoteTalliesChanged -=
                 OnMorningVoteTalliesChanged;
+            matchManager.LocalMafiaKillerVotesChanged -=
+                OnLocalMafiaKillerVotesChanged;
             matchManager.NightResultChanged -= OnNightResultChanged;
             matchManager.LocalDetectiveResultReceived -= OnLocalDetectiveResultReceived;
             matchManager.LocalForensicsResultReceived -= OnLocalForensicsResultReceived;
@@ -1436,7 +1445,8 @@ namespace MafiaGame.UI
                 typeof(RectTransform),
                 typeof(Canvas),
                 typeof(CanvasRenderer),
-                typeof(Image)
+                typeof(Image),
+                typeof(GraphicRaycaster)
             );
             matchStatusBoardRoot.transform.SetParent(
                 parent,
@@ -1525,7 +1535,7 @@ namespace MafiaGame.UI
             TextMeshProUGUI hint = CreateStatusBoardText(
                 "Hint",
                 window.transform,
-                "TAB 키를 누르는 동안 표시됩니다.  마우스 휠: 기록 스크롤",
+                "TAB 키를 누르는 동안 표시됩니다.  마우스 드래그: 기록 스크롤",
                 20f,
                 TextAlignmentOptions.Center,
                 new Vector2(1500f, 34f),
@@ -1614,13 +1624,7 @@ namespace MafiaGame.UI
             return text;
         }
 
-        private void CreateStatusBoardColumn(
-            Transform parent,
-            string objectName,
-            string title,
-            Vector2 anchoredPosition,
-            out TextMeshProUGUI contentText,
-            out ScrollRect scrollRect)
+        private void CreateStatusBoardColumn(Transform parent, string objectName, string title, Vector2 anchoredPosition, out TextMeshProUGUI contentText, out ScrollRect scrollRect)
         {
             GameObject panel = CreateStatusBoardPanel(
                 objectName,
@@ -1645,6 +1649,8 @@ namespace MafiaGame.UI
             GameObject viewport = new GameObject(
                 "Viewport",
                 typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(Image),
                 typeof(RectMask2D),
                 typeof(ScrollRect)
             );
@@ -1662,6 +1668,11 @@ namespace MafiaGame.UI
                 new Vector2(480f, 560f);
             viewportRect.anchoredPosition =
                 new Vector2(0f, -20f);
+
+            Image viewportImage =
+                viewport.GetComponent<Image>();
+            viewportImage.color = Color.clear;
+            viewportImage.raycastTarget = true;
 
             contentText = CreateStatusBoardText(
                 "Content",
@@ -1703,61 +1714,74 @@ namespace MafiaGame.UI
             if (matchStatusBoardRoot == null)
                 return;
 
-            bool tabHeld = Keyboard.current != null &&
-                           Keyboard.current.tabKey.isPressed;
-            bool blocked = matchManager == null ||
-                           matchManager.CurrentPhase == MatchPhase.None ||
-                           matchManager.CurrentPhase == MatchPhase.GameResult ||
-                           IsHelpPanelOpen ||
-                           IsAnyTextChatInputFocused() ||
-                           (leaveMatchConfirmationPanel != null &&
-                            leaveMatchConfirmationPanel.activeInHierarchy);
-            bool visible = tabHeld && !blocked;
+            bool tabHeld =
+                Keyboard.current != null &&
+                Keyboard.current.tabKey.isPressed;
+
+            bool blocked =
+                matchManager == null ||
+                matchManager.CurrentPhase == MatchPhase.None ||
+                matchManager.CurrentPhase == MatchPhase.GameResult ||
+                IsHelpPanelOpen ||
+                IsAnyTextChatInputFocused() ||
+                (leaveMatchConfirmationPanel != null &&
+                 leaveMatchConfirmationPanel.activeInHierarchy);
+
+            bool visible =
+                tabHeld &&
+                !blocked;
 
             if (matchStatusBoardRoot.activeSelf != visible)
             {
                 matchStatusBoardRoot.SetActive(visible);
 
                 if (visible)
+                {
                     RefreshMatchStatusBoard();
+
+                    SpiritFirstPersonCamera localCamera =
+                        SpiritFirstPersonCamera.LocalInstance;
+
+                    matchStatusBoardRestoreCursorLock =
+                        localCamera != null &&
+                        !SpiritFirstPersonCamera
+                            .IsLocalUIInteractionActive;
+
+                    if (localCamera != null)
+                    {
+                        localCamera.SendMessage(
+                            "UnlockCursor",
+                            SendMessageOptions
+                                .DontRequireReceiver
+                        );
+                    }
+                }
+                else
+                {
+                    if (matchStatusBoardRestoreCursorLock &&
+                        !blocked)
+                    {
+                        SpiritFirstPersonCamera localCamera =
+                            SpiritFirstPersonCamera.LocalInstance;
+
+                        if (localCamera != null)
+                        {
+                            localCamera.SendMessage(
+                                "LockCursor",
+                                SendMessageOptions
+                                    .DontRequireReceiver
+                            );
+                        }
+                    }
+
+                    matchStatusBoardRestoreCursorLock = false;
+                }
             }
 
             if (!visible)
                 return;
 
             RefreshMatchStatusBoard();
-
-            if (Mouse.current == null)
-                return;
-
-            float scroll = Mouse.current.scroll.ReadValue().y;
-
-            if (Mathf.Abs(scroll) < 0.01f)
-                return;
-
-            Canvas.ForceUpdateCanvases();
-
-            float delta =
-                Mathf.Sign(scroll) *
-                MatchStatusScrollStep;
-
-            if (matchStatusPublicScrollRect != null)
-            {
-                matchStatusPublicScrollRect.verticalNormalizedPosition =
-                    Mathf.Clamp01(
-                        matchStatusPublicScrollRect.verticalNormalizedPosition +
-                        delta
-                    );
-            }
-
-            if (matchStatusPersonalScrollRect != null)
-            {
-                matchStatusPersonalScrollRect.verticalNormalizedPosition =
-                    Mathf.Clamp01(
-                        matchStatusPersonalScrollRect.verticalNormalizedPosition +
-                        delta
-                    );
-            }
         }
 
         private void InitializeMatchStatusTracking()
@@ -2832,6 +2856,17 @@ namespace MafiaGame.UI
 
         private void OnMorningVoteTalliesChanged()
         {
+            RefreshMorningVoteTallyUI();
+        }
+
+        private void OnLocalMafiaKillerVotesChanged()
+        {
+            if (currentVoteMode == VoteMode.MafiaKiller)
+            {
+                RefreshVotePlayers();
+                return;
+            }
+
             RefreshMorningVoteTallyUI();
         }
 
@@ -5306,12 +5341,13 @@ namespace MafiaGame.UI
         {
             yield return null;
 
-            if (nightChat != null &&
+            bool nightFocused =
+                nightChat != null &&
                 nightChat.inputField != null &&
-                !nightChat.inputField.isFocused)
-            {
+                nightChat.inputField.isFocused;
+
+            if (!nightFocused)
                 SetNightChatInputActive(false);
-            }
         }
 
         private void SetNightChatInputActive(bool active)
@@ -5443,6 +5479,7 @@ namespace MafiaGame.UI
                         .DeactivateInputField();
                 }
 
+
                 SetNightChatInputActive(false);
                 return;
             }
@@ -5464,6 +5501,7 @@ namespace MafiaGame.UI
                 nightChat.inputField.ActivateInputField();
                 return;
             }
+
 
             if (morningChat != null &&
                 morningChat.root != null &&
@@ -5492,10 +5530,12 @@ namespace MafiaGame.UI
             string senderName,
             string message)
         {
-            ChatPanelReferences panel =
-                channel == TextChatChannel.MorningPublic
-                    ? morningChat
-                    : nightChat;
+            ChatPanelReferences panel;
+
+            if (channel == TextChatChannel.MorningPublic)
+                panel = morningChat;
+            else
+                panel = nightChat;
 
             AddChatMessage(
                 panel,
@@ -5826,11 +5866,23 @@ namespace MafiaGame.UI
                 nightChat.titleText != null &&
                 showNightChat)
             {
-                nightChat.titleText.text =
-                    nightChannel ==
-                        TextChatChannel.MafiaNight
-                        ? "야간 채팅"
-                        : "영매사 채팅";
+                switch (nightChannel)
+                {
+                    case TextChatChannel.MafiaNight:
+                        nightChat.titleText.text =
+                            "야간 마녀 채팅";
+                        break;
+
+                    case TextChatChannel.MediumNight:
+                        nightChat.titleText.text =
+                            "영매사 채팅";
+                        break;
+
+                    case TextChatChannel.Dead:
+                        nightChat.titleText.text =
+                            "사망자 채팅";
+                        break;
+                }
             }
 
             if (!showNightChat)
@@ -5863,6 +5915,45 @@ namespace MafiaGame.UI
                 return false;
             }
 
+            /*
+             * 영매사 교신 중에는 생존 영매사와 선택된
+             * 사망자 모두 같은 좌하단 채팅 UI를 영매사
+             * 전용 채널로 사용한다. 선택된 사망자는 이
+             * 동안 사망자 채팅으로 전환할 수 없다.
+             */
+            if (matchManager.CurrentPhase ==
+                    MatchPhase.NightAction &&
+                matchManager.HasLocalMediumCommunication)
+            {
+                channel = TextChatChannel.MediumNight;
+                return true;
+            }
+
+            /*
+             * 영매사가 아직 교신 대상으로 선택할 수 있는
+             * RestrictedDeadSpectator 기간에는 사망자 채팅을
+             * 사용할 수 없다. 그렇지 않으면 다른 사망자에게
+             * 얻은 정보를 영매사에게 전달할 수 있기 때문이다.
+             * 실제 교신이 시작되면 위 분기에서 MediumNight가
+             * 활성화되고, 교신 가능 기간이 끝난 뒤부터는
+             * 밤/낮 구분 없이 사망자 채팅을 사용한다.
+             */
+            if (!localState.isAlive &&
+                matchManager.CurrentPhase != MatchPhase.None &&
+                matchManager.CurrentPhase != MatchPhase.GameResult)
+            {
+                if (!matchManager.TryGetPlayerSpirit(
+                        localState.clientId,
+                        out PlayerSpirit localSpirit) ||
+                    !localSpirit.IsFreeDeadSpectator)
+                {
+                    return false;
+                }
+
+                channel = TextChatChannel.Dead;
+                return true;
+            }
+
             bool isNightPhase =
                 matchManager.CurrentPhase ==
                     MatchPhase.NightPreparation ||
@@ -5874,14 +5965,6 @@ namespace MafiaGame.UI
                 localState.team == RoleTeam.Mafia)
             {
                 channel = TextChatChannel.MafiaNight;
-                return true;
-            }
-
-            if (matchManager.CurrentPhase ==
-                    MatchPhase.NightAction &&
-                matchManager.HasLocalMediumCommunication)
-            {
-                channel = TextChatChannel.MediumNight;
                 return true;
             }
 
@@ -7092,11 +7175,26 @@ namespace MafiaGame.UI
             if (IsLocalAliveMafia() &&
                 IsLocalMafiaMember(playerState.clientId))
             {
-                if (isLocalPlayer)
-                    return $"{localMarker}{playerName}";
+                string mafiaMarker =
+                    isLocalPlayer
+                        ? localMarker
+                        : $"<color=#{GetTeamColorHex(RoleTeam.Mafia)}>◆</color> ";
+
+                string voterNames =
+                    currentVoteMode == VoteMode.MafiaKiller
+                        ? matchManager
+                            .GetLocalMafiaKillerVoterNames(
+                                playerState.clientId
+                            )
+                        : string.Empty;
+
+                string voterSuffix =
+                    string.IsNullOrWhiteSpace(voterNames)
+                        ? string.Empty
+                        : $"  <size=80%>← {voterNames}</size>";
 
                 return
-                    $"<color=#{GetTeamColorHex(RoleTeam.Mafia)}>◆</color> {playerName}";
+                    $"{mafiaMarker}{playerName}{voterSuffix}";
             }
 
             return $"{localMarker}{playerName}";
@@ -7574,12 +7672,20 @@ namespace MafiaGame.UI
 
         private void RefreshMorningVoteTallyUI()
         {
-            bool showCounts =
+            bool showMorningCounts =
                 matchManager != null &&
                 currentVoteMode ==
                     VoteMode.MorningExile &&
                 matchManager.CurrentPhase ==
                     MatchPhase.MorningVote;
+
+            bool showMafiaCounts =
+                matchManager != null &&
+                currentVoteMode ==
+                    VoteMode.MafiaKiller &&
+                matchManager.CurrentPhase ==
+                    MatchPhase.NightPreparation &&
+                IsLocalAliveMafia();
 
             if (suspectIdentityLabels != null)
             {
@@ -7594,19 +7700,28 @@ namespace MafiaGame.UI
                         continue;
 
                     bool hasPlayer =
-                        showCounts &&
+                        (showMorningCounts ||
+                         showMafiaCounts) &&
                         suspectClientIds != null &&
                         i < suspectClientIds.Length &&
                         suspectClientIds[i] !=
                             ulong.MaxValue;
 
-                    int voteCount =
-                        hasPlayer
-                            ? matchManager
-                                .GetMorningVoteCount(
-                                    suspectClientIds[i]
-                                )
-                            : 0;
+                    int voteCount = 0;
+
+                    if (hasPlayer)
+                    {
+                        voteCount =
+                            showMafiaCounts
+                                ? matchManager
+                                    .GetLocalMafiaKillerVoteCount(
+                                        suspectClientIds[i]
+                                    )
+                                : matchManager
+                                    .GetMorningVoteCount(
+                                        suspectClientIds[i]
+                                    );
+                    }
 
                     label.SetVoteCount(
                         voteCount,
@@ -7616,7 +7731,7 @@ namespace MafiaGame.UI
             }
 
             if (abstainButtonText == null ||
-                !showCounts)
+                !showMorningCounts)
             {
                 return;
             }
