@@ -9,6 +9,7 @@ public class House : MonoBehaviour
 
     [Header("집 내부 영역")]
     [SerializeField] private BoxCollider interiorArea;
+    [SerializeField] private BoxCollider additionalInteriorArea;
 
     [Header("육체 및 영체 생성 위치")]
     [SerializeField] private Transform bodyPoint;
@@ -317,15 +318,29 @@ public class House : MonoBehaviour
 
     public bool ContainsPosition(Vector3 worldPosition)
     {
-        if (interiorArea == null)
+        return ContainsPosition(
+                   interiorArea,
+                   worldPosition
+               ) ||
+               ContainsPosition(
+                   additionalInteriorArea,
+                   worldPosition
+               );
+    }
+
+    private static bool ContainsPosition(
+        BoxCollider area,
+        Vector3 worldPosition)
+    {
+        if (area == null)
             return false;
 
-        Transform areaTransform = interiorArea.transform;
+        Transform areaTransform = area.transform;
         Vector3 localPosition = areaTransform.InverseTransformPoint(worldPosition);
 
-        localPosition -= interiorArea.center;
+        localPosition -= area.center;
 
-        Vector3 halfSize = interiorArea.size * 0.5f;
+        Vector3 halfSize = area.size * 0.5f;
 
         return Mathf.Abs(localPosition.x) <= halfSize.x &&
                Mathf.Abs(localPosition.y) <= halfSize.y &&

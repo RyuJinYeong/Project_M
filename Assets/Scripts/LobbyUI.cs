@@ -107,6 +107,7 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("게임 플레이 UI와 같은 순서: 마우스 감도, 게임 음량, 음성 채팅 음량, 마이크, 음성 수신, 화면 모드, 해상도, 그래픽 품질, FPS 제한, 화면 효과")]
     [SerializeField] private Button[] personalSettingButtons;
     [SerializeField] private TextMeshProUGUI[] personalSettingValueTexts;
+    private RightClickHandler mouseSensitivityRightClickHandler;
 
     public Button closeSettingsButton;
 
@@ -120,15 +121,6 @@ public class LobbyUI : MonoBehaviour
         "Personal.ResolutionHeight";
     private const string QualityLevelPreferenceKey =
         "Personal.QualityLevel";
-
-    private static readonly int[] FrameRateChoices =
-    {
-        30,
-        60,
-        120,
-        240,
-        -1
-    };
 
     private static readonly string[] PersonalSettingButtonNames =
     {
@@ -1336,7 +1328,24 @@ public class LobbyUI : MonoBehaviour
         }
 
         if (personalSettingButtons[0] != null)
+        {
             personalSettingButtons[0].onClick.AddListener(CycleMouseSensitivity);
+            mouseSensitivityRightClickHandler =
+                personalSettingButtons[0]
+                    .GetComponent<RightClickHandler>();
+
+            if (mouseSensitivityRightClickHandler == null)
+            {
+                mouseSensitivityRightClickHandler =
+                    personalSettingButtons[0].gameObject
+                        .AddComponent<RightClickHandler>();
+            }
+
+            mouseSensitivityRightClickHandler.Clicked -=
+                DecreaseMouseSensitivity;
+            mouseSensitivityRightClickHandler.Clicked +=
+                DecreaseMouseSensitivity;
+        }
         if (personalSettingButtons[1] != null)
             personalSettingButtons[1].onClick.AddListener(CycleMasterVolume);
         if (personalSettingButtons[2] != null)
@@ -1345,16 +1354,6 @@ public class LobbyUI : MonoBehaviour
             personalSettingButtons[3].onClick.AddListener(TogglePersonalMicrophone);
         if (personalSettingButtons[4] != null)
             personalSettingButtons[4].onClick.AddListener(TogglePersonalVoiceOutput);
-        if (personalSettingButtons[5] != null)
-            personalSettingButtons[5].onClick.AddListener(CycleFullScreenMode);
-        if (personalSettingButtons[6] != null)
-            personalSettingButtons[6].onClick.AddListener(CycleResolution);
-        if (personalSettingButtons[7] != null)
-            personalSettingButtons[7].onClick.AddListener(CycleQualityLevel);
-        if (personalSettingButtons[8] != null)
-            personalSettingButtons[8].onClick.AddListener(CycleTargetFrameRate);
-        if (personalSettingButtons[9] != null)
-            personalSettingButtons[9].onClick.AddListener(CycleScreenEffectIntensity);
     }
 
     private void UnregisterPersonalSettingEvents()
@@ -1367,6 +1366,12 @@ public class LobbyUI : MonoBehaviour
 
         if (personalSettingButtons[0] != null)
             personalSettingButtons[0].onClick.RemoveListener(CycleMouseSensitivity);
+
+        if (mouseSensitivityRightClickHandler != null)
+        {
+            mouseSensitivityRightClickHandler.Clicked -=
+                DecreaseMouseSensitivity;
+        }
         if (personalSettingButtons[1] != null)
             personalSettingButtons[1].onClick.RemoveListener(CycleMasterVolume);
         if (personalSettingButtons[2] != null)
@@ -1375,16 +1380,6 @@ public class LobbyUI : MonoBehaviour
             personalSettingButtons[3].onClick.RemoveListener(TogglePersonalMicrophone);
         if (personalSettingButtons[4] != null)
             personalSettingButtons[4].onClick.RemoveListener(TogglePersonalVoiceOutput);
-        if (personalSettingButtons[5] != null)
-            personalSettingButtons[5].onClick.RemoveListener(CycleFullScreenMode);
-        if (personalSettingButtons[6] != null)
-            personalSettingButtons[6].onClick.RemoveListener(CycleResolution);
-        if (personalSettingButtons[7] != null)
-            personalSettingButtons[7].onClick.RemoveListener(CycleQualityLevel);
-        if (personalSettingButtons[8] != null)
-            personalSettingButtons[8].onClick.RemoveListener(CycleTargetFrameRate);
-        if (personalSettingButtons[9] != null)
-            personalSettingButtons[9].onClick.RemoveListener(CycleScreenEffectIntensity);
     }
 
     private void ApplySavedPersonalSettings()
@@ -1430,14 +1425,28 @@ public class LobbyUI : MonoBehaviour
 
     private void CycleMouseSensitivity()
     {
+        ChangeMouseSensitivity(0.02f);
+    }
+
+    private void DecreaseMouseSensitivity()
+    {
+        ChangeMouseSensitivity(-0.02f);
+    }
+
+    private void ChangeMouseSensitivity(float amount)
+    {
         float sensitivity = PlayerPrefs.GetFloat(
             SpiritFirstPersonCamera.MouseSensitivityPreferenceKey,
             0.12f
         );
-        sensitivity += 0.02f;
+        sensitivity += amount;
 
         if (sensitivity > 0.401f)
             sensitivity = 0.04f;
+        else if (sensitivity < 0.039f)
+            sensitivity = 0.40f;
+
+        sensitivity = Mathf.Round(sensitivity * 100f) / 100f;
 
         PlayerPrefs.SetFloat(
             SpiritFirstPersonCamera.MouseSensitivityPreferenceKey,
@@ -1540,139 +1549,6 @@ public class LobbyUI : MonoBehaviour
         RefreshPersonalSettingsUI();
     }
 
-    private void CycleFullScreenMode()
-    {
-        FullScreenMode mode;
-
-        switch (Screen.fullScreenMode)
-        {
-            case FullScreenMode.FullScreenWindow:
-                mode = FullScreenMode.Windowed;
-                break;
-            case FullScreenMode.Windowed:
-                mode = FullScreenMode.ExclusiveFullScreen;
-                break;
-            default:
-                mode = FullScreenMode.FullScreenWindow;
-                break;
-        }
-
-        Screen.SetResolution(
-            Screen.width,
-            Screen.height,
-            mode
-        );
-        PlayerPrefs.SetInt(
-            FullScreenModePreferenceKey,
-            (int)mode
-        );
-        PlayerPrefs.Save();
-        RefreshPersonalSettingsUI();
-    }
-
-    private void CycleResolution()
-    {
-        Resolution[] resolutions = Screen.resolutions;
-
-        if (resolutions == null || resolutions.Length == 0)
-            return;
-
-        int currentIndex = 0;
-
-        for (int i = 0; i < resolutions.Length; i++)
-        {
-            if (resolutions[i].width == Screen.width &&
-                resolutions[i].height == Screen.height)
-            {
-                currentIndex = i;
-            }
-        }
-
-        Resolution next = resolutions[
-            (currentIndex + 1) % resolutions.Length
-        ];
-
-        Screen.SetResolution(
-            next.width,
-            next.height,
-            Screen.fullScreenMode
-        );
-        PlayerPrefs.SetInt(
-            ResolutionWidthPreferenceKey,
-            next.width
-        );
-        PlayerPrefs.SetInt(
-            ResolutionHeightPreferenceKey,
-            next.height
-        );
-        PlayerPrefs.Save();
-        RefreshPersonalSettingsUI();
-    }
-
-    private void CycleQualityLevel()
-    {
-        int qualityCount = QualitySettings.names.Length;
-
-        if (qualityCount == 0)
-            return;
-
-        int nextLevel =
-            (QualitySettings.GetQualityLevel() + 1) %
-            qualityCount;
-        QualitySettings.SetQualityLevel(nextLevel, true);
-        PlayerPrefs.SetInt(
-            QualityLevelPreferenceKey,
-            nextLevel
-        );
-        PlayerPrefs.Save();
-        RefreshPersonalSettingsUI();
-    }
-
-    private void CycleTargetFrameRate()
-    {
-        RelayConnectionManager relayManager =
-            RelayConnectionManager.Instance;
-        int current = relayManager != null
-            ? relayManager.TargetFrameRate
-            : PlayerPrefs.GetInt(
-                RelayConnectionManager.TargetFrameRatePreferenceKey,
-                60
-            );
-        int index = System.Array.IndexOf(
-            FrameRateChoices,
-            current
-        );
-        int next = FrameRateChoices[
-            (Mathf.Max(-1, index) + 1) %
-            FrameRateChoices.Length
-        ];
-
-        if (relayManager != null)
-        {
-            relayManager.SetTargetFrameRate(next);
-        }
-        else
-        {
-            QualitySettings.vSyncCount = 0;
-            Application.targetFrameRate = next;
-            PlayerPrefs.SetInt(
-                RelayConnectionManager.TargetFrameRatePreferenceKey,
-                next
-            );
-            PlayerPrefs.Save();
-        }
-
-        RefreshPersonalSettingsUI();
-    }
-
-    private void CycleScreenEffectIntensity()
-    {
-        SpiritHitReceiver.SetReducedScreenEffects(
-            !SpiritHitReceiver.UseReducedScreenEffects
-        );
-        RefreshPersonalSettingsUI();
-    }
-
     private void RefreshPersonalSettingsUI()
     {
         if (personalSettingValueTexts == null ||
@@ -1705,22 +1581,6 @@ public class LobbyUI : MonoBehaviour
                 VivoxVoiceManager.VoiceOutputPreferenceKey,
                 1
             ) != 0;
-        string qualityName = QualitySettings.names.Length > 0
-            ? QualitySettings.names[
-                Mathf.Clamp(
-                    QualitySettings.GetQualityLevel(),
-                    0,
-                    QualitySettings.names.Length - 1
-                )
-            ]
-            : "기본";
-        int frameRate = RelayConnectionManager.Instance != null
-            ? RelayConnectionManager.Instance.TargetFrameRate
-            : PlayerPrefs.GetInt(
-                RelayConnectionManager.TargetFrameRatePreferenceKey,
-                Application.targetFrameRate
-            );
-
         SetPersonalSettingText(0,
             $"마우스 감도  |  {sensitivity:0.00}");
         SetPersonalSettingText(1,
@@ -1734,23 +1594,10 @@ public class LobbyUI : MonoBehaviour
         SetPersonalSettingText(4,
             "음성 수신  |  " +
             (voiceOutputEnabled ? "켜짐" : "꺼짐"));
-        SetPersonalSettingText(5,
-            "화면 모드  |  " +
-            GetFullScreenModeLabel(Screen.fullScreenMode));
-        SetPersonalSettingText(6,
-            $"해상도  |  {Screen.width} x {Screen.height}");
-        SetPersonalSettingText(7,
-            $"그래픽 품질  |  {qualityName}");
-        SetPersonalSettingText(8,
-            "FPS 제한  |  " +
-            (frameRate < 0
-                ? "제한 없음"
-                : $"{frameRate} FPS"));
-        SetPersonalSettingText(9,
-            "화면 효과  |  " +
-            (SpiritHitReceiver.UseReducedScreenEffects
-                ? "낮음"
-                : "보통"));
+        helpPanel
+            ?.GetComponentInChildren
+                <PersonalGraphicsDropdownController>(true)
+            ?.Refresh();
     }
 
     private void SetPersonalSettingText(int index, string value)
@@ -1764,20 +1611,6 @@ public class LobbyUI : MonoBehaviour
         }
 
         personalSettingValueTexts[index].SetText(value);
-    }
-
-    private static string GetFullScreenModeLabel(
-        FullScreenMode mode)
-    {
-        switch (mode)
-        {
-            case FullScreenMode.ExclusiveFullScreen:
-                return "전체 화면";
-            case FullScreenMode.Windowed:
-                return "창 모드";
-            default:
-                return "테두리 없는 창";
-        }
     }
 
     private void SetSettingsInteractable(

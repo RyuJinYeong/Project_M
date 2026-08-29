@@ -174,6 +174,7 @@ namespace MafiaGame.UI
             new List<Button>();
         [SerializeField] private List<TextMeshProUGUI> personalSettingValueTexts =
             new List<TextMeshProUGUI>();
+        private RightClickHandler mouseSensitivityRightClickHandler;
         [SerializeField] private TextMeshProUGUI voiceConnectionStatusText;
         [SerializeField] private Button[] voiceParticipantButtons;
         [SerializeField] private TextMeshProUGUI[] voiceParticipantRowTexts;
@@ -191,15 +192,6 @@ namespace MafiaGame.UI
 
         private const float SlowRoleAssignmentNoticeDelay = 8f;
         private const float LobbyReturnTimeout = 20f;
-
-        private static readonly int[] FrameRateChoices =
-        {
-            30,
-            60,
-            120,
-            240,
-            -1
-        };
 
         private GameObject leaveMatchConfirmationPanel;
         private Button confirmLeaveMatchButton;
@@ -867,6 +859,21 @@ namespace MafiaGame.UI
 
             personalSettingButtons[0].onClick.AddListener(
                 CycleMouseSensitivity);
+            mouseSensitivityRightClickHandler =
+                personalSettingButtons[0]
+                    .GetComponent<RightClickHandler>();
+
+            if (mouseSensitivityRightClickHandler == null)
+            {
+                mouseSensitivityRightClickHandler =
+                    personalSettingButtons[0].gameObject
+                        .AddComponent<RightClickHandler>();
+            }
+
+            mouseSensitivityRightClickHandler.Clicked -=
+                DecreaseMouseSensitivity;
+            mouseSensitivityRightClickHandler.Clicked +=
+                DecreaseMouseSensitivity;
             personalSettingButtons[1].onClick.AddListener(
                 CycleMasterVolume);
             personalSettingButtons[2].onClick.AddListener(
@@ -875,16 +882,6 @@ namespace MafiaGame.UI
                 TogglePersonalMicrophone);
             personalSettingButtons[4].onClick.AddListener(
                 TogglePersonalVoiceOutput);
-            personalSettingButtons[5].onClick.AddListener(
-                CycleFullScreenMode);
-            personalSettingButtons[6].onClick.AddListener(
-                CycleResolution);
-            personalSettingButtons[7].onClick.AddListener(
-                CycleQualityLevel);
-            personalSettingButtons[8].onClick.AddListener(
-                CycleTargetFrameRate);
-            personalSettingButtons[9].onClick.AddListener(
-                CycleScreenEffectIntensity);
         }
 
         private void UnregisterPersonalSettingEvents()
@@ -897,6 +894,13 @@ namespace MafiaGame.UI
 
             personalSettingButtons[0].onClick.RemoveListener(
                 CycleMouseSensitivity);
+
+            if (mouseSensitivityRightClickHandler != null)
+            {
+                mouseSensitivityRightClickHandler.Clicked -=
+                    DecreaseMouseSensitivity;
+            }
+
             personalSettingButtons[1].onClick.RemoveListener(
                 CycleMasterVolume);
             personalSettingButtons[2].onClick.RemoveListener(
@@ -905,16 +909,6 @@ namespace MafiaGame.UI
                 TogglePersonalMicrophone);
             personalSettingButtons[4].onClick.RemoveListener(
                 TogglePersonalVoiceOutput);
-            personalSettingButtons[5].onClick.RemoveListener(
-                CycleFullScreenMode);
-            personalSettingButtons[6].onClick.RemoveListener(
-                CycleResolution);
-            personalSettingButtons[7].onClick.RemoveListener(
-                CycleQualityLevel);
-            personalSettingButtons[8].onClick.RemoveListener(
-                CycleTargetFrameRate);
-            personalSettingButtons[9].onClick.RemoveListener(
-                CycleScreenEffectIntensity);
         }
 
         private IEnumerator BindMatchManagerRoutine()
@@ -4182,16 +4176,30 @@ namespace MafiaGame.UI
 
         private void CycleMouseSensitivity()
         {
+            ChangeMouseSensitivity(0.02f);
+        }
+
+        private void DecreaseMouseSensitivity()
+        {
+            ChangeMouseSensitivity(-0.02f);
+        }
+
+        private void ChangeMouseSensitivity(float amount)
+        {
             float sensitivity = PlayerPrefs.GetFloat(
                 SpiritFirstPersonCamera.MouseSensitivityPreferenceKey,
                 SpiritFirstPersonCamera.LocalInstance != null
                     ? SpiritFirstPersonCamera.LocalInstance.MouseSensitivity
                     : 0.12f
             );
-            sensitivity += 0.02f;
+            sensitivity += amount;
 
             if (sensitivity > 0.401f)
                 sensitivity = 0.04f;
+            else if (sensitivity < 0.039f)
+                sensitivity = 0.40f;
+
+            sensitivity = Mathf.Round(sensitivity * 100f) / 100f;
 
             PlayerPrefs.SetFloat(
                 SpiritFirstPersonCamera.MouseSensitivityPreferenceKey,
@@ -4299,135 +4307,6 @@ namespace MafiaGame.UI
             RefreshPersonalSettingsUI();
         }
 
-        private void CycleFullScreenMode()
-        {
-            FullScreenMode mode;
-
-            switch (Screen.fullScreenMode)
-            {
-                case FullScreenMode.FullScreenWindow:
-                    mode = FullScreenMode.Windowed;
-                    break;
-                case FullScreenMode.Windowed:
-                    mode = FullScreenMode.ExclusiveFullScreen;
-                    break;
-                default:
-                    mode = FullScreenMode.FullScreenWindow;
-                    break;
-            }
-
-            Screen.SetResolution(
-                Screen.width,
-                Screen.height,
-                mode
-            );
-            PlayerPrefs.SetInt(
-                FullScreenModePreferenceKey,
-                (int)mode
-            );
-            PlayerPrefs.Save();
-            RefreshPersonalSettingsUI();
-        }
-
-        private void CycleResolution()
-        {
-            Resolution[] resolutions = Screen.resolutions;
-
-            if (resolutions == null || resolutions.Length == 0)
-                return;
-
-            int currentIndex = 0;
-
-            for (int i = 0; i < resolutions.Length; i++)
-            {
-                if (resolutions[i].width == Screen.width &&
-                    resolutions[i].height == Screen.height)
-                {
-                    currentIndex = i;
-                }
-            }
-
-            Resolution next = resolutions[
-                (currentIndex + 1) % resolutions.Length
-            ];
-            Screen.SetResolution(
-                next.width,
-                next.height,
-                Screen.fullScreenMode
-            );
-            PlayerPrefs.SetInt(
-                ResolutionWidthPreferenceKey,
-                next.width
-            );
-            PlayerPrefs.SetInt(
-                ResolutionHeightPreferenceKey,
-                next.height
-            );
-            PlayerPrefs.Save();
-            RefreshPersonalSettingsUI();
-        }
-
-        private void CycleQualityLevel()
-        {
-            int qualityCount = QualitySettings.names.Length;
-
-            if (qualityCount == 0)
-                return;
-
-            int nextLevel =
-                (QualitySettings.GetQualityLevel() + 1) % qualityCount;
-            QualitySettings.SetQualityLevel(nextLevel, true);
-            PlayerPrefs.SetInt(
-                QualityLevelPreferenceKey,
-                nextLevel
-            );
-            PlayerPrefs.Save();
-            RefreshPersonalSettingsUI();
-        }
-
-        private void CycleTargetFrameRate()
-        {
-            RelayConnectionManager relayManager =
-                RelayConnectionManager.Instance;
-            int current = relayManager != null
-                ? relayManager.TargetFrameRate
-                : PlayerPrefs.GetInt(
-                    RelayConnectionManager.TargetFrameRatePreferenceKey,
-                    60
-                );
-            int index = Array.IndexOf(FrameRateChoices, current);
-            int next = FrameRateChoices[
-                (Mathf.Max(-1, index) + 1) %
-                FrameRateChoices.Length
-            ];
-
-            if (relayManager != null)
-                relayManager.SetTargetFrameRate(next);
-            else
-            {
-                QualitySettings.vSyncCount = 0;
-                Application.targetFrameRate = next;
-                PlayerPrefs.SetInt(
-                    RelayConnectionManager.TargetFrameRatePreferenceKey,
-                    next
-                );
-                PlayerPrefs.Save();
-            }
-
-            RefreshPersonalSettingsUI();
-        }
-
-        private void CycleScreenEffectIntensity()
-        {
-            bool useReducedEffects =
-                !SpiritHitReceiver.UseReducedScreenEffects;
-
-            SpiritHitReceiver.SetReducedScreenEffects(
-                useReducedEffects
-            );
-            RefreshPersonalSettingsUI();
-        }
-
         private void RefreshPersonalSettingsUI()
         {
             if (personalSettingValueTexts.Count < 10)
@@ -4457,19 +4336,6 @@ namespace MafiaGame.UI
                     VivoxVoiceManager.VoiceOutputPreferenceKey,
                     1
                 ) != 0;
-            string qualityName = QualitySettings.names.Length > 0
-                ? QualitySettings.names[
-                    Mathf.Clamp(
-                        QualitySettings.GetQualityLevel(),
-                        0,
-                        QualitySettings.names.Length - 1
-                    )
-                ]
-                : "기본";
-            int frameRate = RelayConnectionManager.Instance != null
-                ? RelayConnectionManager.Instance.TargetFrameRate
-                : Application.targetFrameRate;
-
             personalSettingValueTexts[0].SetText(
                 $"마우스 감도  |  {sensitivity:0.00}"
             );
@@ -4488,42 +4354,10 @@ namespace MafiaGame.UI
                 "음성 수신  |  " +
                 (voiceOutputEnabled ? "켜짐" : "꺼짐")
             );
-            personalSettingValueTexts[5].SetText(
-                "화면 모드  |  " +
-                GetFullScreenModeLabel(Screen.fullScreenMode)
-            );
-            personalSettingValueTexts[6].SetText(
-                $"해상도  |  {Screen.width} x {Screen.height}"
-            );
-            personalSettingValueTexts[7].SetText(
-                $"그래픽 품질  |  {qualityName}"
-            );
-            personalSettingValueTexts[8].SetText(
-                "FPS 제한  |  " +
-                (frameRate < 0
-                    ? "제한 없음"
-                    : $"{frameRate} FPS")
-            );
-            personalSettingValueTexts[9].SetText(
-                "화면 효과  |  " +
-                (SpiritHitReceiver.UseReducedScreenEffects
-                    ? "낮음"
-                    : "보통")
-            );
-        }
-
-        private static string GetFullScreenModeLabel(
-            FullScreenMode mode)
-        {
-            switch (mode)
-            {
-                case FullScreenMode.ExclusiveFullScreen:
-                    return "전체 화면";
-                case FullScreenMode.Windowed:
-                    return "창 모드";
-                default:
-                    return "테두리 없는 창";
-            }
+            helpPanel
+                ?.GetComponentInChildren
+                    <PersonalGraphicsDropdownController>(true)
+                ?.Refresh();
         }
 
         private void EnsureLeaveMatchButton()
@@ -7180,21 +7014,7 @@ namespace MafiaGame.UI
                         ? localMarker
                         : $"<color=#{GetTeamColorHex(RoleTeam.Mafia)}>◆</color> ";
 
-                string voterNames =
-                    currentVoteMode == VoteMode.MafiaKiller
-                        ? matchManager
-                            .GetLocalMafiaKillerVoterNames(
-                                playerState.clientId
-                            )
-                        : string.Empty;
-
-                string voterSuffix =
-                    string.IsNullOrWhiteSpace(voterNames)
-                        ? string.Empty
-                        : $"  <size=80%>← {voterNames}</size>";
-
-                return
-                    $"{mafiaMarker}{playerName}{voterSuffix}";
+                return $"{mafiaMarker}{playerName}";
             }
 
             return $"{localMarker}{playerName}";

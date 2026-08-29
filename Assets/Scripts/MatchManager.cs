@@ -499,12 +499,12 @@ public class MatchManager : NetworkBehaviour
     private readonly List<MafiaMemberData> localMafiaMembers = new List<MafiaMemberData>();
 
     /*
-     * 밤 준비의 살해 담당 투표 상세는 마녀 진영 클라이언트에게만
-     * 개별 RPC로 전달한다. 일반 공개 NetworkList에는 올리지 않는다.
+     * 밤 준비의 살해 담당 후보별 득표수만 마녀 진영 클라이언트에게
+     * 개별 RPC로 전달한다. 투표자 정보는 클라이언트에 공개하지 않는다.
      */
-    private readonly Dictionary<ulong, ulong>
+    private readonly Dictionary<ulong, int>
         localMafiaKillerVotes =
-            new Dictionary<ulong, ulong>();
+            new Dictionary<ulong, int>();
     private readonly Dictionary<ulong, PlayerMatchState>
         localSpectatorPlayerStates =
             new Dictionary<ulong, PlayerMatchState>();
@@ -7515,44 +7515,11 @@ public class MatchManager : NetworkBehaviour
     public int GetLocalMafiaKillerVoteCount(
         ulong candidateClientId)
     {
-        int voteCount = 0;
-
-        foreach (KeyValuePair<ulong, ulong> vote in
-                 localMafiaKillerVotes)
-        {
-            if (vote.Value == candidateClientId)
-                voteCount++;
-        }
-
-        return voteCount;
-    }
-
-    public string GetLocalMafiaKillerVoterNames(
-        ulong candidateClientId)
-    {
-        StringBuilder names = new StringBuilder();
-
-        foreach (KeyValuePair<ulong, ulong> vote in
-                 localMafiaKillerVotes)
-        {
-            if (vote.Value != candidateClientId)
-                continue;
-
-            if (!TryGetPublicPlayerName(
-                    vote.Key,
-                    out string voterName) ||
-                string.IsNullOrWhiteSpace(voterName))
-            {
-                voterName = $"Player {vote.Key}";
-            }
-
-            if (names.Length > 0)
-                names.Append(", ");
-
-            names.Append(voterName);
-        }
-
-        return names.ToString();
+        return localMafiaKillerVotes.TryGetValue(
+            candidateClientId,
+            out int voteCount)
+                ? voteCount
+                : 0;
     }
 
     private void SendMafiaKillerVoteSnapshotToMafia()
@@ -7563,16 +7530,32 @@ public class MatchManager : NetworkBehaviour
         StringBuilder snapshotBuilder =
             new StringBuilder();
 
+        Dictionary<ulong, int> voteCounts =
+            new Dictionary<ulong, int>();
+
         foreach (KeyValuePair<ulong, ulong> vote in
                  mafiaKillerVotes)
+        {
+            if (!voteCounts.TryGetValue(
+                    vote.Value,
+                    out int voteCount))
+            {
+                voteCount = 0;
+            }
+
+            voteCounts[vote.Value] = voteCount + 1;
+        }
+
+        foreach (KeyValuePair<ulong, int> voteCount in
+                 voteCounts)
         {
             if (snapshotBuilder.Length > 0)
                 snapshotBuilder.Append(';');
 
             snapshotBuilder
-                .Append(vote.Key)
+                .Append(voteCount.Key)
                 .Append(',')
-                .Append(vote.Value);
+                .Append(voteCount.Value);
         }
 
         FixedString512Bytes snapshot =
@@ -7624,17 +7607,18 @@ public class MatchManager : NetworkBehaviour
                 if (pair.Length != 2 ||
                     !ulong.TryParse(
                         pair[0],
-                        out ulong voterClientId) ||
-                    !ulong.TryParse(
+                        out ulong candidateClientId) ||
+                    !int.TryParse(
                         pair[1],
-                        out ulong candidateClientId))
+                        out int voteCount) ||
+                    voteCount <= 0)
                 {
                     continue;
                 }
 
                 localMafiaKillerVotes[
-                    voterClientId
-                ] = candidateClientId;
+                    candidateClientId
+                ] = voteCount;
             }
         }
 
